@@ -34,8 +34,11 @@
       <label class="label" for="infuraKey">Infura Project ID</label>
       <input id="infuraKey" type="password" autocomplete="off" spellcheck="false">
 
+      <label class="label" for="privateKey">Private Key</label>
+      <input id="privateKey" type="password" autocomplete="off" spellcheck="false" autocapitalize="none" aria-describedby="keyHint" placeholder="Private Key ของกระเป๋าทดสอบ Sepolia">
+
       <p id="keyHint" class="label">
-        ตั้งค่า PRIVATE_KEY ใน app.js ก่อนเชื่อมต่อ ใช้กระเป๋าทดสอบ Sepolia เท่านั้น
+        กรอกคีย์ที่นี่ทุกครั้งที่เชื่อมต่อ เก็บเฉพาะในหน่วยความจำระหว่างเชื่อมต่อ ไม่บันทึกลงไฟล์หรือที่เก็บข้อมูลของเว็บ ใช้กระเป๋าทดสอบ Sepolia เท่านั้น
       </p>
 
       <button id="btnConnect" class="btn dark full">เชื่อมต่อ Infura</button>
