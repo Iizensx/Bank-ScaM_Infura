@@ -14,7 +14,7 @@ const INFURA_RPC_BASE = "https://sepolia.infura.io/v3/";
 // ใส่ Private Key ของกระเป๋าทดสอบ Sepolia ที่นี่ (มีหรือไม่มี 0x ก็ได้)
 // คีย์ใน JavaScript อ่านได้จากเบราว์เซอร์ ห้ามใช้กระเป๋าที่มีเงินจริง
 // อย่า commit หรือเผยแพร่ไฟล์นี้หลังใส่คีย์จริง
-const PRIVATE_KEY = "ds";
+const PRIVATE_KEY = "";
 const EXPLORER = "https://sepolia.etherscan.io";
 
 let provider;
