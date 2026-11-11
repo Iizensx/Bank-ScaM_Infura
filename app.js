@@ -1,7 +1,6 @@
-// ===== แก้ตรงนี้: ใส่ address ที่ได้จากการ Deploy ใน Remix =====
+// เปลี่ยนค่านี้เมื่อ deploy Bank ไปยัง address ใหม่บน Sepolia
 const CONTRACT_ADDRESS = "0x3a3d53F6f28115f26Acefe6787Ef5016f2659fa4";
 
-// ชื่อฟังก์ชันต้องตรงกับ contract (checkBlance สะกดแบบนี้)
 const ABI = [
   "function deposit() public payable",
   "function withdraw(uint256 amount) public",
@@ -11,157 +10,202 @@ const ABI = [
 ];
 
 const SEPOLIA_CHAIN_ID = 11155111n;
-const SEPOLIA_HEX = "0xaa36a7";
+const INFURA_RPC_BASE = "https://sepolia.infura.io/v3/";
+// ใส่ Private Key ของกระเป๋าทดสอบ Sepolia ที่นี่ (มีหรือไม่มี 0x ก็ได้)
+// คีย์ใน JavaScript อ่านได้จากเบราว์เซอร์ ห้ามใช้กระเป๋าที่มีเงินจริง
+// อย่า commit หรือเผยแพร่ไฟล์นี้หลังใส่คีย์จริง
+const PRIVATE_KEY = "5693967cc824c1edd0ea12dabce3bab0edc897f49123f839fea61d7d84cf9ba6";
 const EXPLORER = "https://sepolia.etherscan.io";
-let provider, signer, contract;
+
+let provider;
+let contract;
 
 const $ = (id) => document.getElementById(id);
 
-function short(s, a = 6, b = 4) {
-  return s.slice(0, a) + "..." + s.slice(-b);
+function short(value, start = 6, end = 4) {
+  return value.slice(0, start) + "..." + value.slice(-end);
 }
 
-// แสดงสถานะ (มีลิงก์ Etherscan ต่อท้ายได้)
-function setStatus(msg, type = "", link = "") {
-  const el = $("status");
-  el.className = "status " + type;
-  el.textContent = "สถานะ: " + msg;
+function setStatus(message, type = "", link = "") {
+  const status = $("status");
+  status.className = "status " + type;
+  status.textContent = "สถานะ: " + message;
+
   if (link) {
-    const a = document.createElement("a");
-    a.href = link;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.textContent = " ดูบน Etherscan ↗";
-    el.appendChild(a);
+    const anchor = document.createElement("a");
+    anchor.href = link;
+    anchor.target = "_blank";
+    anchor.rel = "noopener";
+    anchor.textContent = " ดูบน Etherscan ↗";
+    status.appendChild(anchor);
   }
 }
 
-function errMsg(e) {
-  return e.reason || e.shortMessage || e.message;
+function errMsg(error) {
+  if (error.code === "INSUFFICIENT_FUNDS") {
+    return "Sepolia ETH ในกระเป๋าไม่พอสำหรับธุรกรรมและค่า gas";
+  }
+  if (error.reason === "not enough money") {
+    return "ยอดเงินในสัญญาไม่พอสำหรับถอน";
+  }
+  return "กรุณาตรวจยอดและการเชื่อมต่อ Infura แล้วลองอีกครั้ง";
 }
 
-// แสดง contract address พร้อมลิงก์ไป Etherscan
 function showContractLink() {
-  const a = $("contractLink");
-  a.textContent = short(CONTRACT_ADDRESS);
-  a.href = EXPLORER + "/address/" + CONTRACT_ADDRESS;
+  const link = $("contractLink");
+  link.textContent = short(CONTRACT_ADDRESS);
+  link.href = EXPLORER + "/address/" + CONTRACT_ADDRESS;
 }
 
-// เพิ่มรายการธุรกรรมล่าสุด
 function addHistory(type, amountEth, hash) {
   $("historyBox").classList.remove("hidden");
-  const li = document.createElement("li");
-  const isDep = type === "Deposit";
 
-  const left = document.createElement("span");
-  const t = document.createElement("span");
-  t.className = "type " + (isDep ? "dep" : "wd");
-  t.textContent = isDep ? "ฝาก" : "ถอน";
-  const amt = document.createElement("span");
-  amt.className = "amt";
-  amt.textContent = amountEth + " ETH";
-  left.append(t, amt);
+  const item = document.createElement("li");
+  const isDeposit = type === "Deposit";
+  const details = document.createElement("span");
 
-  const a = document.createElement("a");
-  a.href = EXPLORER + "/tx/" + hash;
-  a.target = "_blank";
-  a.rel = "noopener";
-  a.textContent = short(hash, 8, 6) + " ↗";
+  const label = document.createElement("span");
+  label.className = "type " + (isDeposit ? "dep" : "wd");
+  label.textContent = isDeposit ? "ฝาก" : "ถอน";
 
-  li.append(left, a);
-  $("history").prepend(li);
+  const amount = document.createElement("span");
+  amount.className = "amt";
+  amount.textContent = amountEth + " ETH";
+  details.append(label, amount);
+
+  const link = document.createElement("a");
+  link.href = EXPLORER + "/tx/" + hash;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.textContent = short(hash, 8, 6) + " ↗";
+
+  item.append(details, link);
+  $("history").prepend(item);
 }
 
-// ขอให้ MetaMask สลับไปเครือข่าย Sepolia
-async function switchToSepolia() {
-  await window.ethereum.request({
-    method: "wallet_switchEthereumChain",
-    params: [{ chainId: SEPOLIA_HEX }]
-  });
+function disconnect() {
+  provider.destroy();
+  provider = null;
+  contract = null;
+
+  $("account").textContent = "-";
+  $("network").textContent = "-";
+  $("balance").textContent = "-";
+  $("history").replaceChildren();
+  $("historyBox").classList.add("hidden");
+  $("btnConnect").textContent = "เชื่อมต่อ Infura";
+  $("infuraKey").disabled = false;
+  setStatus("ตัดการเชื่อมต่อแล้ว");
 }
 
-async function isSepolia() {
-  const net = await provider.getNetwork();
-  if (net.chainId !== SEPOLIA_CHAIN_ID) {
-    setStatus("ไม่ใช่ Sepolia กรุณาสลับเครือข่ายใน MetaMask", "err");
-    return false;
-  }
-  return true;
-}
-
-async function connectWallet() {
-  if (!window.ethereum) {
-    setStatus("ไม่พบ MetaMask กรุณาติดตั้งก่อน", "err");
+async function connectInfura() {
+  if (contract) {
+    disconnect();
     return;
   }
+
+  const projectId = $("infuraKey").value.trim();
+  const privateKey = PRIVATE_KEY.trim().replace(/^0x/i, "");
+
+  if (!/^[a-f0-9]{32}$/i.test(projectId)) {
+    setStatus("กรอก Infura Project ID จำนวน 32 ตัวอักษร", "err");
+    return;
+  }
+  if (!/^[a-f0-9]{64}$/i.test(privateKey)) {
+    setStatus("ใส่ PRIVATE_KEY ใน app.js เป็นคีย์บัญชีทดสอบ Sepolia เลขฐานสิบหก 64 ตัว แล้วรีโหลดหน้าเว็บ", "err");
+    return;
+  }
+
+  $("infuraKey").disabled = true;
+  setBusy(true);
+
+  let nextProvider;
   try {
-    await window.ethereum.request({ method: "eth_requestAccounts" });
+    setStatus("กำลังเชื่อมต่อ Infura...");
+    const rpc = new ethers.FetchRequest(INFURA_RPC_BASE + projectId);
+    rpc.timeout = 15000;
+    nextProvider = new ethers.JsonRpcProvider(rpc, "sepolia", {
+      batchMaxCount: 1
+    });
 
-    const currentChain = await window.ethereum.request({ method: "eth_chainId" });
-    if (currentChain !== SEPOLIA_HEX) {
-      setStatus("กำลังขอสลับเป็น Sepolia... กรุณายืนยันใน MetaMask");
-      await switchToSepolia();
+    const chainId = await nextProvider.send("eth_chainId", []);
+    if (BigInt(chainId) !== SEPOLIA_CHAIN_ID) {
+      setStatus("RPC ที่เชื่อมต่อไม่ใช่ Sepolia", "err");
+      return;
     }
 
-    provider = new ethers.BrowserProvider(window.ethereum);
-    signer = await provider.getSigner();
-    const net = await provider.getNetwork();
-    contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
-
-    const addr = await signer.getAddress();
-    $("account").textContent = short(addr, 8, 6);
-    $("network").textContent = net.name + " (chainId " + net.chainId + ")";
-    $("btnConnect").textContent = "เชื่อมต่อแล้ว";
-
-    if (net.chainId !== SEPOLIA_CHAIN_ID) {
-      setStatus("ไม่ใช่ Sepolia กรุณาสลับเครือข่ายใน MetaMask", "err");
-    } else {
-      setStatus("เชื่อมต่อ MetaMask และ Smart Contract สำเร็จ", "ok");
-      checkBalance(true);
+    if (await nextProvider.getCode(CONTRACT_ADDRESS) === "0x") {
+      setStatus("ไม่พบ Smart Contract ที่ address นี้บน Sepolia", "err");
+      return;
     }
-  } catch (e) {
-    setStatus("เชื่อมต่อไม่สำเร็จ: " + errMsg(e), "err");
+
+    const wallet = new ethers.Wallet("0x" + privateKey, nextProvider);
+    const nextContract = new ethers.Contract(CONTRACT_ADDRESS, ABI, wallet);
+    const balance = await nextContract.checkBlance();
+
+    provider = nextProvider;
+    contract = nextContract;
+    $("account").textContent = short(wallet.address, 8, 6);
+    $("network").textContent = "Sepolia (chainId " + SEPOLIA_CHAIN_ID + ")";
+    $("balance").textContent = ethers.formatEther(balance);
+    $("btnConnect").textContent = "ตัดการเชื่อมต่อ";
+    setStatus("เชื่อมต่อ Infura และ Smart Contract สำเร็จ", "ok");
+  } catch {
+    setStatus(
+      "เชื่อมต่อไม่สำเร็จ กรุณาตรวจ Project ID, Private Key และ Contract Address บน Sepolia",
+      "err"
+    );
+  } finally {
+    if (!contract) {
+      nextProvider?.destroy();
+      $("infuraKey").disabled = false;
+    }
+    setBusy(false);
   }
 }
 
 function needConnect() {
   if (!contract) {
-    setStatus("กรุณากดเชื่อมต่อ MetaMask ก่อน", "err");
+    setStatus("กรุณาเชื่อมต่อ Infura ก่อน", "err");
     return true;
   }
   return false;
 }
 
 function getAmount() {
-  const v = $("amount").value;
-  if (!v || Number(v) <= 0) {
-    setStatus("กรุณาใส่จำนวน ETH ที่มากกว่า 0", "err");
+  const value = $("amount").value.trim();
+  if (!/^(\d+(\.\d{1,18})?|\.\d{1,18})$/.test(value) || Number(value) <= 0) {
+    setStatus("กรอกจำนวน ETH ที่มากกว่า 0 โดยใช้ทศนิยมไม่เกิน 18 ตำแหน่ง", "err");
     return null;
   }
-  return { text: v, wei: ethers.parseEther(v) };
+  return { text: value, wei: ethers.parseEther(value) };
 }
 
 function setBusy(busy) {
-  ["btnDeposit", "btnWithdraw", "btnCheck"].forEach((id) => ($(id).disabled = busy));
+  for (const id of ["btnConnect", "btnDeposit", "btnWithdraw", "btnCheck"]) {
+    $(id).disabled = busy;
+  }
 }
 
 async function deposit() {
   if (needConnect()) return;
-  if (!(await isSepolia())) return;
-  const amt = getAmount();
-  if (amt === null) return;
+  const amount = getAmount();
+  if (amount === null) return;
+
   try {
     setBusy(true);
-    setStatus("กำลังฝากเงิน... กรุณายืนยันใน MetaMask");
-    const tx = await contract.deposit({ value: amt.wei });
-    setStatus("รอการยืนยันบน blockchain...", "", EXPLORER + "/tx/" + tx.hash);
+    setStatus("กำลังส่งธุรกรรมฝากผ่าน Infura...");
+    const tx = await contract.deposit({ value: amount.wei });
+    const link = EXPLORER + "/tx/" + tx.hash;
+    setStatus("รอการยืนยันบน blockchain...", "", link);
     await tx.wait();
-    setStatus("ฝากเงินสำเร็จ!", "ok", EXPLORER + "/tx/" + tx.hash);
-    addHistory("Deposit", amt.text, tx.hash);
+
+    setStatus("ฝากเงินสำเร็จ", "ok", link);
+    addHistory("Deposit", amount.text, tx.hash);
     $("amount").value = "";
     await checkBalance(true);
-  } catch (e) {
-    setStatus("ฝากเงินไม่สำเร็จ: " + errMsg(e), "err");
+  } catch (error) {
+    setStatus("ฝากเงินไม่สำเร็จ: " + errMsg(error), "err");
   } finally {
     setBusy(false);
   }
@@ -169,21 +213,23 @@ async function deposit() {
 
 async function withdraw() {
   if (needConnect()) return;
-  if (!(await isSepolia())) return;
-  const amt = getAmount();
-  if (amt === null) return;
+  const amount = getAmount();
+  if (amount === null) return;
+
   try {
     setBusy(true);
-    setStatus("กำลังถอนเงิน... กรุณายืนยันใน MetaMask");
-    const tx = await contract.withdraw(amt.wei);
-    setStatus("รอการยืนยันบน blockchain...", "", EXPLORER + "/tx/" + tx.hash);
+    setStatus("กำลังส่งธุรกรรมถอนผ่าน Infura...");
+    const tx = await contract.withdraw(amount.wei);
+    const link = EXPLORER + "/tx/" + tx.hash;
+    setStatus("รอการยืนยันบน blockchain...", "", link);
     await tx.wait();
-    setStatus("ถอนเงินสำเร็จ!", "ok", EXPLORER + "/tx/" + tx.hash);
-    addHistory("Withdraw", amt.text, tx.hash);
+
+    setStatus("ถอนเงินสำเร็จ", "ok", link);
+    addHistory("Withdraw", amount.text, tx.hash);
     $("amount").value = "";
     await checkBalance(true);
-  } catch (e) {
-    setStatus("ถอนเงินไม่สำเร็จ: " + errMsg(e), "err");
+  } catch (error) {
+    setStatus("ถอนเงินไม่สำเร็จ: " + errMsg(error), "err");
   } finally {
     setBusy(false);
   }
@@ -191,29 +237,24 @@ async function withdraw() {
 
 async function checkBalance(keepStatus = false) {
   if (needConnect()) return;
-  if (!(await isSepolia())) return;
+  if (!keepStatus) setBusy(true);
+
   try {
-    const bal = await contract.checkBlance();
-    $("balance").textContent = ethers.formatEther(bal);
-    if (keepStatus !== true) setStatus("ตรวจสอบยอดเงินสำเร็จ", "ok");
-  } catch (e) {
-    setStatus("เช็คยอดไม่สำเร็จ: " + errMsg(e), "err");
+    // ชื่อ checkBlance สะกดตามฟังก์ชันใน Solidity
+    const balance = await contract.checkBlance();
+    $("balance").textContent = ethers.formatEther(balance);
+    if (!keepStatus) setStatus("ตรวจสอบยอดเงินสำเร็จ", "ok");
+  } catch (error) {
+    setStatus("เช็กยอดไม่สำเร็จ: " + errMsg(error), "err");
+  } finally {
+    if (!keepStatus) setBusy(false);
   }
 }
 
 showContractLink();
+$("infuraKey").value = "28ab0630472140e997003aa4114c8dcf";
 
-$("btnConnect").addEventListener("click", connectWallet);
+$("btnConnect").addEventListener("click", connectInfura);
 $("btnDeposit").addEventListener("click", deposit);
 $("btnWithdraw").addEventListener("click", withdraw);
 $("btnCheck").addEventListener("click", () => checkBalance());
-
-if (window.ethereum) {
-  window.ethereum.on("accountsChanged", () => location.reload());
-  window.ethereum.on("chainChanged", () => location.reload());
-
-  // ถ้าเคยอนุญาตเว็บนี้แล้ว ให้เชื่อมต่ออัตโนมัติหลังรีโหลด
-  window.ethereum.request({ method: "eth_accounts" }).then((accs) => {
-    if (accs.length > 0) connectWallet();
-  });
-}
