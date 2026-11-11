@@ -11,10 +11,12 @@ const ABI = [
 
 const SEPOLIA_CHAIN_ID = 11155111n;
 const INFURA_RPC_BASE = "https://sepolia.infura.io/v3/";
+
 // ใส่ Private Key ของกระเป๋าทดสอบ Sepolia ที่นี่ (มีหรือไม่มี 0x ก็ได้)
 // คีย์ใน JavaScript อ่านได้จากเบราว์เซอร์ ห้ามใช้กระเป๋าที่มีเงินจริง
 // อย่า commit หรือเผยแพร่ไฟล์นี้หลังใส่คีย์จริง
-const PRIVATE_KEY = "";
+const PRIVATE_KEY = "ds";
+
 const EXPLORER = "https://sepolia.etherscan.io";
 
 let provider;
@@ -95,6 +97,8 @@ function disconnect() {
   $("historyBox").classList.add("hidden");
   $("btnConnect").textContent = "เชื่อมต่อ Infura";
   $("infuraKey").disabled = false;
+  $("privateKey").disabled = false;
+  $("privateKey").value = "";
   setStatus("ตัดการเชื่อมต่อแล้ว");
 }
 
@@ -105,18 +109,20 @@ async function connectInfura() {
   }
 
   const projectId = $("infuraKey").value.trim();
-  const privateKey = PRIVATE_KEY.trim().replace(/^0x/i, "");
+  const privateKey = $("privateKey").value.trim().replace(/^0x/i, "");
 
   if (!/^[a-f0-9]{32}$/i.test(projectId)) {
     setStatus("กรอก Infura Project ID จำนวน 32 ตัวอักษร", "err");
     return;
   }
   if (!/^[a-f0-9]{64}$/i.test(privateKey)) {
-    setStatus("ใส่ PRIVATE_KEY ใน app.js เป็นคีย์บัญชีทดสอบ Sepolia เลขฐานสิบหก 64 ตัว แล้วรีโหลดหน้าเว็บ", "err");
+    setStatus("กรอก Private Key ของบัญชีทดสอบ Sepolia เป็นเลขฐานสิบหก 64 ตัว (มีหรือไม่มี 0x ก็ได้)", "err");
     return;
   }
 
   $("infuraKey").disabled = true;
+  $("privateKey").disabled = true;
+  $("privateKey").value = "";
   setBusy(true);
 
   let nextProvider;
@@ -159,6 +165,7 @@ async function connectInfura() {
     if (!contract) {
       nextProvider?.destroy();
       $("infuraKey").disabled = false;
+      $("privateKey").disabled = false;
     }
     setBusy(false);
   }
@@ -252,7 +259,6 @@ async function checkBalance(keepStatus = false) {
 }
 
 showContractLink();
-$("infuraKey").value = "28ab0630472140e997003aa4114c8dcf";
 
 $("btnConnect").addEventListener("click", connectInfura);
 $("btnDeposit").addEventListener("click", deposit);
